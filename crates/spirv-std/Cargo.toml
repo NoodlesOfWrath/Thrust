@@ -1,0 +1,18 @@
+[package]
+name = "spirv-std"
+description = "Standard functions and types for SPIR-V"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+spirv-std-types.workspace = true
+spirv-std-macros.workspace = true
+bitflags = "1.2.1"
+num-traits = { version = "0.2.15", default-features = false, features = ["libm"] }
+glam = { version = ">=0.22, <=0.24", default-features = false, features = ["libm"] }
+
+[features]
+default = []

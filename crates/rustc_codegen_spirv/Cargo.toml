@@ -1,0 +1,79 @@
+[package]
+name = "rustc_codegen_spirv"
+description = "SPIR-V code generator backend for rustc"
+documentation = "https://embarkstudios.github.io/rust-gpu/api/rustc_codegen_spirv/index.html"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["dylib"]
+
+[features]
+# By default, the use-compiled-tools is enabled, as doesn't require additional
+# setup steps for the user. This does however mean that you will need to disable
+# default features and explicitly enable `use-installed-tools` if you are using
+# this in an environment with spirv-tools in PATH, and you don't want to take
+# the compile time cost
+default = ["use-compiled-tools"]
+# If enabled, uses spirv-tools binaries installed in PATH, instead of
+# compiling and linking the spirv-tools C++ code
+use-installed-tools = ["spirv-tools/use-installed-tools"]
+# If enabled will compile and link the C++ code for the spirv tools, the compiled
+# version is preferred if both this and `use-installed-tools` are enabled
+use-compiled-tools = ["spirv-tools/use-compiled-tools"]
+# If enabled, this will not check whether the current rustc version is set to the
+# appropriate channel. rustc_cogeden_spirv requires a specific nightly version,
+# and will likely produce compile errors when built against a different toolchain.
+# Enable this feature to be able to experiment with other versions.
+skip-toolchain-check = []
+
+# HACK(eddyb) these are not real "build dependencies", but rather dependencies
+# of proc macros, which we want to enable extra features in (without having
+# a proc macro crate to do that through), for the same reasons as the list at
+# the start of `[dependencies]` (avoiding unnecessary rebuilds).
+[build-dependencies]
+syn = { version = "1", features = ["extra-traits", "full"] }
+
+[dependencies]
+# HACK(eddyb) these only exist to unify features across dependency trees,
+# in order to avoid multiple separate instances of `rustc_codegen_spirv`.
+hashbrown = "0.11"
+libc = { version = "0.2", features = ["align", "extra_traits"] }
+num-traits = { version = "0.2", features = ["libm"] }
+once_cell = "1"
+regex = { version = "1", features = ["perf"] }
+
+# Normal dependencies.
+ar = "0.9.0"
+either = "1.8.0"
+indexmap = "1.6.0"
+rspirv = "0.11"
+rustc-demangle = "0.1.21"
+sanitize-filename = "0.4"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+smallvec = { version = "1.6.1", features = ["union"] }
+spirv-tools = { version = "0.9", default-features = false }
+rustc_codegen_spirv-types.workspace = true
+spirt = "0.3.0"
+lazy_static = "1.4.0"
+itertools = "0.10.5"
+
+[dev-dependencies]
+pipe = "0.4"
+pretty_assertions = "1.0"
+tempfile = "3.4"
+
+# Note that in order to use RA and have access to `rustc_*` crates, you also
+# need to set `"rust-analyzer.rustcSource": "discover"` in e.g. VSCode.
+[package.metadata.rust-analyzer]
+# This crate uses #[feature(rustc_private)]
+rustc_private = true
+
+[profile.dev.build-override]
+debug = true
+[profile.release.build-override]
+debug = true

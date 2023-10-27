@@ -1,0 +1,15 @@
+[package]
+name = "sky-shader"
+version = "0.0.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib", "dylib"]
+
+[dependencies]
+shared = { path = "../shared" }
+spirv-std = { workspace = true }

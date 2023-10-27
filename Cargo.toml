@@ -1,0 +1,94 @@
+[package]
+name = "example-runner-wgpu"
+version = "0.0.0"
+publish = false
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["lib", "cdylib"]
+
+# See rustc_codegen_spirv/Cargo.toml for details on these features
+[features]
+default = ["use-compiled-tools"]
+use-installed-tools = ["spirv-builder/use-installed-tools"]
+use-compiled-tools = ["spirv-builder/use-compiled-tools"]
+
+[dependencies]
+cfg-if = "1.0.0"
+shared = { path = "shaders/shared" }
+futures = { version = "0.3", default-features = false, features = ["std", "executor"] }
+# Vulkan SDK or MoltenVK needs to be installed for `vulkan-portability` to work on macOS
+wgpu = { version = "0.16.0", features = ["spirv", "vulkan-portability"] }
+winit = { version = "0.28.3", features = ["android-native-activity"] }
+structopt = "0.3"
+strum = { version = "0.23.0", default_features = false, features = ["std", "derive"] }
+bytemuck = "1.6.3"
+
+[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
+env_logger = "0.10.0"
+spirv-builder = { workspace = true, features = ["watch"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.13.0"
+# NOTE(eddyb) `winit` feature `android-native-activity` is always enabled above,
+# to avoid specifying the dependency twice, but only applies to android builds.
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = "0.3.60"
+console_error_panic_hook = "0.1.6"
+console_log = "0.2.0"
+wasm-bindgen-futures = "0.4.18"
+
+[workspace]
+resolver = "2"
+members = [
+    "builder",
+
+    "crates/rustc_codegen_spirv",
+    "crates/rustc_codegen_spirv-types",
+    "crates/spirv-builder",
+    "crates/spirv-std",
+    "crates/spirv-std/shared",
+    "crates/spirv-std/macros",
+]
+
+[workspace.package]
+version = "0.9.0"
+authors = ["Embark <opensource@embark-studios.com>"]
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/EmbarkStudios/rust-gpu"
+
+[workspace.dependencies]
+spirv-std = { path = "./crates/spirv-std", version = "=0.9.0" }
+spirv-std-types = { path = "./crates/spirv-std/shared", version = "=0.9.0" }
+spirv-std-macros = { path = "./crates/spirv-std/macros", version = "=0.9.0" }
+spirv-builder = { path = "./crates/spirv-builder", version = "=0.9.0", default-features = false  }
+rustc_codegen_spirv = { path = "./crates/rustc_codegen_spirv", version = "=0.9.0", default-features = false }
+rustc_codegen_spirv-types = { path = "./crates/rustc_codegen_spirv-types", version = "=0.9.0" }
+
+# Enable incremental by default in release mode.
+[profile.release]
+incremental = true
+# HACK(eddyb) this is the default but without explicitly specifying it, Cargo
+# will treat the identical settings in `[profile.release.build-override]` below
+# as different sets of `rustc` flags and will not reuse artifacts between them.
+codegen-units = 256
+
+# Compile build-dependencies in release mode with the same settings
+# as regular dependencies (including the incremental enabled above).
+[profile.release.build-override]
+opt-level = 3
+incremental = true
+codegen-units = 256
+
+# Compile build-dependencies in release mode with the same settings
+# as regular dependencies (including the incremental enabled above).
+[profile.dev.build-override]
+opt-level = 3
+incremental = true
+codegen-units = 256
+debug = true
