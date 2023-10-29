@@ -9,7 +9,7 @@ use rustc_middle::ty::layout::{
 };
 use rustc_middle::ty::Ty;
 use rustc_middle::{bug, span_bug};
-use rustc_span::source_map::{Span, Spanned, DUMMY_SP};
+use rustc_span::source_map::{Span, DUMMY_SP};
 use rustc_target::abi::call::{CastTarget, FnAbi, Reg};
 use rustc_target::abi::{Abi, AddressSpace, FieldsShape};
 
@@ -37,13 +37,16 @@ impl<'tcx> FnAbiOfHelpers<'tcx> for CodegenCx<'tcx> {
         fn_abi_request: FnAbiRequest<'tcx>,
     ) -> ! {
         if let FnAbiError::Layout(LayoutError::SizeOverflow(_)) = err {
-            self.tcx.sess.emit_fatal(Spanned { span, node: err })
+            self.tcx.sess.span_fatal(span, err.to_string())
         } else {
             match fn_abi_request {
                 FnAbiRequest::OfFnPtr { sig, extra_args } => {
                     span_bug!(
                         span,
-                        "`fn_abi_of_fn_ptr({sig}, {extra_args:?})` failed: {err:?}",
+                        "`fn_abi_of_fn_ptr({}, {:?})` failed: {}",
+                        sig,
+                        extra_args,
+                        err
                     );
                 }
                 FnAbiRequest::OfInstance {
@@ -52,7 +55,10 @@ impl<'tcx> FnAbiOfHelpers<'tcx> for CodegenCx<'tcx> {
                 } => {
                     span_bug!(
                         span,
-                        "`fn_abi_of_instance({instance}, {extra_args:?})` failed: {err:?}",
+                        "`fn_abi_of_instance({}, {:?})` failed: {}",
+                        instance,
+                        extra_args,
+                        err
                     );
                 }
             }

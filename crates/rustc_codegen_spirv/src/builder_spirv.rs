@@ -13,7 +13,6 @@ use rustc_arena::DroplessArena;
 use rustc_data_structures::fx::{FxHashMap, FxHashSet};
 use rustc_data_structures::sync::Lrc;
 use rustc_middle::bug;
-use rustc_middle::mir::interpret::ConstAllocation;
 use rustc_middle::ty::TyCtxt;
 use rustc_span::source_map::SourceMap;
 use rustc_span::symbol::Symbol;
@@ -207,8 +206,8 @@ impl SpirvValueExt for Word {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum SpirvConst<'a, 'tcx> {
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq, Hash)]
+pub enum SpirvConst<'tcx> {
     U32(u32),
     U64(u64),
     /// f32 isn't hash, so store bits
@@ -226,23 +225,16 @@ pub enum SpirvConst<'a, 'tcx> {
     // different functions, but of the same type, don't overlap their zombies.
     ZombieUndefForFnAddr,
 
-    Composite(&'a [Word]),
+    Composite(&'tcx [Word]),
 
     /// Pointer to constant data, i.e. `&pointee`, represented as an `OpVariable`
     /// in the `Private` storage class, and with `pointee` as its initializer.
     PtrTo {
         pointee: Word,
     },
-
-    /// Symbolic result for the `const_data_from_alloc` method, to allow deferring
-    /// the actual value generation until after a pointer to this value is cast
-    /// to its final type (e.g. that will be loaded as).
-    //
-    // FIXME(eddyb) replace this with `qptr` handling of constant data.
-    ConstDataFromAlloc(ConstAllocation<'tcx>),
 }
 
-impl<'tcx> SpirvConst<'_, 'tcx> {
+impl SpirvConst<'_> {
     /// Replace `&[T]` fields with `&'tcx [T]` ones produced by calling
     /// `tcx.arena.dropless.alloc_slice(...)` - this is done late for two reasons:
     /// 1. it avoids allocating in the arena when the cache would be hit anyway,
@@ -250,7 +242,7 @@ impl<'tcx> SpirvConst<'_, 'tcx> {
     ///    (ideally these would also be interned, but that's even more refactors)
     /// 2. an empty slice is disallowed (as it's usually handled as a special
     ///    case elsewhere, e.g. `rustc`'s `ty::List` - sadly we can't use that)
-    fn tcx_arena_alloc_slices(self, cx: &CodegenCx<'tcx>) -> SpirvConst<'tcx, 'tcx> {
+    fn tcx_arena_alloc_slices<'tcx>(self, cx: &CodegenCx<'tcx>) -> SpirvConst<'tcx> {
         fn arena_alloc_slice<'tcx, T: Copy>(cx: &CodegenCx<'tcx>, xs: &[T]) -> &'tcx [T] {
             if xs.is_empty() {
                 &[]
@@ -272,8 +264,6 @@ impl<'tcx> SpirvConst<'_, 'tcx> {
             SpirvConst::PtrTo { pointee } => SpirvConst::PtrTo { pointee },
 
             SpirvConst::Composite(fields) => SpirvConst::Composite(arena_alloc_slice(cx, fields)),
-
-            SpirvConst::ConstDataFromAlloc(alloc) => SpirvConst::ConstDataFromAlloc(alloc),
         }
     }
 }
@@ -292,12 +282,6 @@ enum LeafIllegalConst {
     /// as its operands, and `OpVariable`s are never considered constant.
     // FIXME(eddyb) figure out if this is an accidental omission in SPIR-V.
     CompositeContainsPtrTo,
-
-    /// `ConstDataFromAlloc` constant, which cannot currently be materialized
-    /// to SPIR-V (and requires to be wrapped in `PtrTo` and bitcast, first).
-    //
-    // FIXME(eddyb) replace this with `qptr` handling of constant data.
-    UntypedConstDataFromAlloc,
 }
 
 impl LeafIllegalConst {
@@ -305,10 +289,6 @@ impl LeafIllegalConst {
         match *self {
             Self::CompositeContainsPtrTo => {
                 "constant arrays/structs cannot contain pointers to other constants"
-            }
-            Self::UntypedConstDataFromAlloc => {
-                "`const_data_from_alloc` result wasn't passed through `static_addr_of`, \
-                 then `const_bitcast` (which would've given it a type)"
             }
         }
     }
@@ -411,8 +391,8 @@ pub struct BuilderSpirv<'tcx> {
     // (e.g. `OpConstant...`) instruction.
     // NOTE(eddyb) both maps have `WithConstLegality` around their keys, which
     // allows getting that legality information without additional lookups.
-    const_to_id: RefCell<FxHashMap<WithType<SpirvConst<'tcx, 'tcx>>, WithConstLegality<Word>>>,
-    id_to_const: RefCell<FxHashMap<Word, WithConstLegality<SpirvConst<'tcx, 'tcx>>>>,
+    const_to_id: RefCell<FxHashMap<WithType<SpirvConst<'tcx>>, WithConstLegality<Word>>>,
+    id_to_const: RefCell<FxHashMap<Word, WithConstLegality<SpirvConst<'tcx>>>>,
 
     debug_file_cache: RefCell<FxHashMap<DebugFileKey, DebugFileSpirv<'tcx>>>,
 
@@ -555,7 +535,7 @@ impl<'tcx> BuilderSpirv<'tcx> {
     pub(crate) fn def_constant_cx(
         &self,
         ty: Word,
-        val: SpirvConst<'_, 'tcx>,
+        val: SpirvConst<'_>,
         cx: &CodegenCx<'tcx>,
     ) -> SpirvValue {
         let val_with_type = WithType { ty, val };
@@ -584,9 +564,7 @@ impl<'tcx> BuilderSpirv<'tcx> {
             }
 
             SpirvConst::Null => builder.constant_null(ty),
-            SpirvConst::Undef
-            | SpirvConst::ZombieUndefForFnAddr
-            | SpirvConst::ConstDataFromAlloc(_) => builder.undef(ty, None),
+            SpirvConst::Undef | SpirvConst::ZombieUndefForFnAddr => builder.undef(ty, None),
 
             SpirvConst::Composite(v) => builder.constant_composite(ty, v.iter().copied()),
 
@@ -619,40 +597,35 @@ impl<'tcx> BuilderSpirv<'tcx> {
                 Ok(())
             }
 
-            SpirvConst::Composite(v) => v
-                .iter()
-                .map(|field| {
-                    let field_entry = &self.id_to_const.borrow()[field];
-                    field_entry.legal.and(
-                        // `field` is itself some legal `SpirvConst`, but can we have
-                        // it as part of an `OpConstantComposite`?
-                        match field_entry.val {
-                            SpirvConst::PtrTo { .. } => Err(IllegalConst::Shallow(
-                                LeafIllegalConst::CompositeContainsPtrTo,
-                            )),
-                            _ => Ok(()),
-                        },
-                    )
-                })
-                .reduce(|a, b| {
-                    match (a, b) {
-                        (Ok(()), Ok(())) => Ok(()),
-                        (Err(illegal), Ok(())) | (Ok(()), Err(illegal)) => Err(illegal),
+            SpirvConst::Composite(v) => v.iter().fold(Ok(()), |composite_legal, field| {
+                let field_entry = &self.id_to_const.borrow()[field];
+                let field_legal_in_composite = field_entry.legal.and(
+                    // `field` is itself some legal `SpirvConst`, but can we have
+                    // it as part of an `OpConstantComposite`?
+                    match field_entry.val {
+                        SpirvConst::PtrTo { .. } => Err(IllegalConst::Shallow(
+                            LeafIllegalConst::CompositeContainsPtrTo,
+                        )),
+                        _ => Ok(()),
+                    },
+                );
 
-                        // Combining two causes of an illegal `SpirvConst` has to
-                        // take into account which is "worse", i.e. which imposes
-                        // more restrictions on how the resulting value can be used.
-                        // `Indirect` is worse than `Shallow` because it cannot be
-                        // materialized at runtime in the same way `Shallow` can be.
-                        (Err(illegal @ IllegalConst::Indirect(_)), Err(_))
-                        | (Err(_), Err(illegal @ IllegalConst::Indirect(_)))
-                        | (
-                            Err(illegal @ IllegalConst::Shallow(_)),
-                            Err(IllegalConst::Shallow(_)),
-                        ) => Err(illegal),
+                match (composite_legal, field_legal_in_composite) {
+                    (Ok(()), Ok(())) => Ok(()),
+                    (Err(illegal), Ok(())) | (Ok(()), Err(illegal)) => Err(illegal),
+
+                    // Combining two causes of an illegal `SpirvConst` has to
+                    // take into account which is "worse", i.e. which imposes
+                    // more restrictions on how the resulting value can be used.
+                    // `Indirect` is worse than `Shallow` because it cannot be
+                    // materialized at runtime in the same way `Shallow` can be.
+                    (Err(illegal @ IllegalConst::Indirect(_)), Err(_))
+                    | (Err(_), Err(illegal @ IllegalConst::Indirect(_)))
+                    | (Err(illegal @ IllegalConst::Shallow(_)), Err(IllegalConst::Shallow(_))) => {
+                        Err(illegal)
                     }
-                })
-                .unwrap_or(Ok(())),
+                }
+            }),
 
             SpirvConst::PtrTo { pointee } => match self.id_to_const.borrow()[&pointee].legal {
                 Ok(()) => Ok(()),
@@ -662,10 +635,6 @@ impl<'tcx> BuilderSpirv<'tcx> {
                     Err(IllegalConst::Indirect(cause))
                 }
             },
-
-            SpirvConst::ConstDataFromAlloc(_) => Err(IllegalConst::Shallow(
-                LeafIllegalConst::UntypedConstDataFromAlloc,
-            )),
         };
         let val = val.tcx_arena_alloc_slices(cx);
         assert_matches!(
@@ -689,11 +658,11 @@ impl<'tcx> BuilderSpirv<'tcx> {
         SpirvValue { kind, ty }
     }
 
-    pub fn lookup_const_by_id(&self, id: Word) -> Option<SpirvConst<'tcx, 'tcx>> {
+    pub fn lookup_const_by_id(&self, id: Word) -> Option<SpirvConst<'tcx>> {
         Some(self.id_to_const.borrow().get(&id)?.val)
     }
 
-    pub fn lookup_const(&self, def: SpirvValue) -> Option<SpirvConst<'tcx, 'tcx>> {
+    pub fn lookup_const(&self, def: SpirvValue) -> Option<SpirvConst<'tcx>> {
         match def.kind {
             SpirvValueKind::Def(id) | SpirvValueKind::IllegalConst(id) => {
                 self.lookup_const_by_id(id)

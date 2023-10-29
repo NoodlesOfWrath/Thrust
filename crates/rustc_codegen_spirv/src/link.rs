@@ -14,9 +14,7 @@ use rustc_metadata::fs::METADATA_FILENAME;
 use rustc_middle::bug;
 use rustc_middle::dep_graph::WorkProduct;
 use rustc_middle::middle::dependency_format::Linkage;
-use rustc_session::config::{
-    CrateType, DebugInfo, Lto, OptLevel, OutFileName, OutputFilenames, OutputType,
-};
+use rustc_session::config::{CrateType, DebugInfo, Lto, OptLevel, OutputFilenames, OutputType};
 use rustc_session::output::{check_file_is_writeable, invalid_output_for_target, out_filename};
 use rustc_session::utils::NativeLibKind;
 use rustc_session::Session;
@@ -62,11 +60,9 @@ pub fn link(
 
         if outputs.outputs.should_codegen() {
             let out_filename = out_filename(sess, crate_type, outputs, Symbol::intern(crate_name));
-            let out_filename_file_for_writing =
-                out_filename.file_for_writing(outputs, OutputType::Exe, None);
             match crate_type {
                 CrateType::Rlib => {
-                    link_rlib(sess, codegen_results, &out_filename_file_for_writing);
+                    link_rlib(sess, codegen_results, &out_filename);
                 }
                 CrateType::Executable | CrateType::Cdylib | CrateType::Dylib => {
                     // HACK(eddyb) there's no way way to access `outputs.filestem`,
@@ -80,7 +76,7 @@ pub fn link(
                     link_exe(
                         sess,
                         crate_type,
-                        &out_filename_file_for_writing,
+                        &out_filename,
                         codegen_results,
                         outputs,
                         &disambiguated_crate_name_for_dumps,
@@ -88,21 +84,6 @@ pub fn link(
                 }
                 other => {
                     sess.err(format!("CrateType {other:?} not supported yet"));
-                }
-            }
-            match out_filename {
-                OutFileName::Real(_) => {
-                    // Already written to, above.
-                }
-                OutFileName::Stdout => {
-                    // HACK(eddyb) wrote a file above, time to read it back out.
-                    std::io::copy(
-                        &mut std::io::BufReader::new(
-                            std::fs::File::open(out_filename_file_for_writing).unwrap(),
-                        ),
-                        &mut std::io::stdout(),
-                    )
-                    .unwrap();
                 }
             }
         }

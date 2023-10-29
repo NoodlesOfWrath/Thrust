@@ -10,9 +10,9 @@ use std::process::{Command, ExitCode};
 /// `cargo publish`. We need to figure out a way to do this properly, but let's hardcode it for now :/
 //const REQUIRED_RUST_TOOLCHAIN: &str = include_str!("../../rust-toolchain.toml");
 const REQUIRED_RUST_TOOLCHAIN: &str = r#"[toolchain]
-channel = "nightly-2023-07-08"
+channel = "nightly-2023-05-27"
 components = ["rust-src", "rustc-dev", "llvm-tools-preview"]
-# commit_hash = cb80ff132a0e9aa71529b701427e4e6c243b58df"#;
+# commit_hash = 1a5f8bce74ee432f7cc3aa131bc3d6920e06de10"#;
 
 fn get_rustc_commit_hash() -> Result<String, Box<dyn Error>> {
     let rustc = std::env::var("RUSTC").unwrap_or_else(|_| String::from("rustc"));
@@ -37,37 +37,15 @@ fn check_toolchain_version() -> Result<(), Box<dyn Error>> {
 
     // if we're building from local source, check if REQUIRED_RUST_TOOLCHAIN matches ../../rust-toolchain.toml
     if std::env::current_dir()?.ends_with("crates/rustc_codegen_spirv") {
-        let current_toolchain = match std::fs::read_to_string("../../rust-toolchain.toml") {
-            Ok(content) => content,
-            Err(e) => {
-                eprintln!("Error reading rust-toolchain.toml: {}", e);
-                println!("Current working directory: {:?}", std::env::current_dir());
-                println!(
-                    "Reading rust-toolchain.toml from: {:?}",
-                    std::path::Path::new("../../rust-toolchain.toml")
-                        .canonicalize()?
-                        .display()
-                );
-                // Handle the error appropriately, e.g., return an error code or panic.
-                return Err(Box::<dyn Error>::from(format!(
-                    "error: building from local source while `REQUIRED_RUST_TOOLCHAIN` (defined in `{}`) doesn't match `{}`",
-                    file!(),
-                    std::path::Path::new("../../rust-toolchain.toml")
-                    .canonicalize()?
-                    .display()
-                )));
-            }
-        };
+        let current_toolchain = std::fs::read_to_string("../../rust-toolchain.toml")?;
         if !current_toolchain.contains(REQUIRED_RUST_TOOLCHAIN) {
-            let error = Err(Box::<dyn Error>::from(format!(
+            return Err(Box::<dyn Error>::from(format!(
                 "error: building from local source while `REQUIRED_RUST_TOOLCHAIN` (defined in `{}`) doesn't match `{}`",
                 file!(),
                 std::path::Path::new("../../rust-toolchain.toml")
-                .canonicalize()?
-                .display()
+                    .canonicalize()?
+                    .display()
             )));
-            println!("error is {:?}", error);
-            return error;
         }
     }
 
@@ -93,8 +71,6 @@ Make sure your `rust-toolchain.toml` file contains the following:
 -------------"#
             )));
         }
-    } else {
-        println!("Skipping `REQUIRED_RUST_TOOLCHAIN` check")
     }
 
     Ok(())
@@ -104,7 +80,7 @@ fn main() -> ExitCode {
     match check_toolchain_version() {
         Ok(_) => ExitCode::SUCCESS,
         Err(e) => {
-            eprint!("{:?}, aborting build\n", e);
+            eprint!("{e}");
             ExitCode::FAILURE
         }
     }

@@ -95,20 +95,11 @@ fn link_with_linker_opts(
     // is really a silent unwinding device, that should be treated the same as
     // `Err(ErrorGuaranteed)` returns from `link`).
     rustc_driver::catch_fatal_errors(|| {
-        let mut early_error_handler = rustc_session::EarlyErrorHandler::new(
-            rustc_session::config::ErrorOutputType::default(),
-        );
-        let matches = rustc_driver::handle_options(
-            &early_error_handler,
-            &["".to_string(), "x.rs".to_string()],
-        )
-        .unwrap();
-        let sopts =
-            rustc_session::config::build_session_options(&mut early_error_handler, &matches);
+        let matches = rustc_driver::handle_options(&["".to_string(), "x.rs".to_string()]).unwrap();
+        let sopts = rustc_session::config::build_session_options(&matches);
 
         rustc_span::create_session_globals_then(sopts.edition, || {
             let mut sess = rustc_session::build_session(
-                &early_error_handler,
                 sopts,
                 CompilerIO {
                     input: Input::Str {

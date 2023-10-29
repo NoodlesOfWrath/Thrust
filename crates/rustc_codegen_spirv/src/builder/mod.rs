@@ -20,8 +20,10 @@ use rustc_codegen_ssa::traits::{
     AbiBuilderMethods, ArgAbiMethods, BackendTypes, BuilderMethods, CoverageInfoBuilderMethods,
     DebugInfoBuilderMethods, HasCodegen, StaticBuilderMethods, TypeMembershipMethods,
 };
-use rustc_errors::{DiagnosticBuilder, DiagnosticMessage, ErrorGuaranteed};
-use rustc_middle::mir::Coverage;
+use rustc_errors::{DiagnosticBuilder, ErrorGuaranteed};
+use rustc_middle::mir::coverage::{
+    CodeRegion, CounterValueReference, ExpressionOperandId, InjectedExpressionId, Op,
+};
 use rustc_middle::span_bug;
 use rustc_middle::ty::layout::{
     FnAbiError, FnAbiOfHelpers, FnAbiRequest, HasParamEnv, HasTyCtxt, LayoutError, LayoutOfHelpers,
@@ -68,11 +70,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         }
     }
 
-    #[track_caller]
-    pub fn struct_err(
-        &self,
-        msg: impl Into<DiagnosticMessage>,
-    ) -> DiagnosticBuilder<'_, ErrorGuaranteed> {
+    pub fn struct_err(&self, msg: &str) -> DiagnosticBuilder<'_, ErrorGuaranteed> {
         if let Some(current_span) = self.current_span {
             self.tcx.sess.struct_span_err(current_span, msg)
         } else {
@@ -80,8 +78,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         }
     }
 
-    #[track_caller]
-    pub fn err(&self, msg: impl Into<DiagnosticMessage>) {
+    pub fn err(&self, msg: &str) {
         if let Some(current_span) = self.current_span {
             self.tcx.sess.span_err(current_span, msg);
         } else {
@@ -89,8 +86,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
         }
     }
 
-    #[track_caller]
-    pub fn fatal(&self, msg: impl Into<DiagnosticMessage>) -> ! {
+    pub fn fatal(&self, msg: &str) -> ! {
         if let Some(current_span) = self.current_span {
             self.tcx.sess.span_fatal(current_span, msg)
         } else {
@@ -140,7 +136,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
                 assert_ty_eq!(self, ty, pointee);
                 pointee
             }
-            other_type => self.fatal(format!(
+            other_type => self.fatal(&format!(
                 "GEP first deref not implemented for type {other_type:?}"
             )),
         };
@@ -148,7 +144,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
             result_indices.push(index.def(self));
             result_pointee_type = match self.lookup_type(result_pointee_type) {
                 SpirvType::Array { element, .. } | SpirvType::RuntimeArray { element } => element,
-                _ => self.fatal(format!(
+                _ => self.fatal(&format!(
                     "GEP not implemented for type {}",
                     self.debug_type(result_pointee_type)
                 )),
@@ -222,7 +218,7 @@ impl<'a, 'tcx> Builder<'a, 'tcx> {
     fn rotate(&mut self, value: SpirvValue, shift: SpirvValue, is_left: bool) -> SpirvValue {
         let width = match self.lookup_type(shift.ty) {
             SpirvType::Integer(width, _) => width,
-            other => self.fatal(format!(
+            other => self.fatal(&format!(
                 "cannot rotate non-integer type: {}",
                 other.debug(shift.ty, self)
             )),
@@ -261,7 +257,31 @@ impl<'a, 'tcx> Deref for Builder<'a, 'tcx> {
 }
 
 impl<'a, 'tcx> CoverageInfoBuilderMethods<'tcx> for Builder<'a, 'tcx> {
-    fn add_coverage(&mut self, _instance: Instance<'tcx>, _coverage: &Coverage) {}
+    fn set_function_source_hash(&mut self, _: rustc_middle::ty::Instance<'tcx>, _: u64) -> bool {
+        todo!()
+    }
+    fn add_coverage_counter(
+        &mut self,
+        _: Instance<'tcx>,
+        _: CounterValueReference,
+        _: CodeRegion,
+    ) -> bool {
+        todo!()
+    }
+    fn add_coverage_counter_expression(
+        &mut self,
+        _: Instance<'tcx>,
+        _: InjectedExpressionId,
+        _: ExpressionOperandId,
+        _: Op,
+        _: ExpressionOperandId,
+        _: Option<CodeRegion>,
+    ) -> bool {
+        todo!()
+    }
+    fn add_coverage_unreachable(&mut self, _: Instance<'tcx>, _: CodeRegion) -> bool {
+        todo!()
+    }
 }
 
 impl<'a, 'tcx> DebugInfoBuilderMethods for Builder<'a, 'tcx> {
