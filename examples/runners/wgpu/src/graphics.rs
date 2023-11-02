@@ -1,11 +1,34 @@
 use crate::{maybe_watch, CompiledShaderModules, Options};
 
-use shared::ShaderConstants;
+use wgpu::util::DeviceExt;
+
+use shared::{Circle, CirclesToDisplay, ShaderConstants};
 use winit::{
     event::{ElementState, Event, KeyboardInput, MouseButton, VirtualKeyCode, WindowEvent},
     event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
     window::Window,
 };
+
+// WIP
+
+struct CircleWrapper {
+    pub circles: CirclesToDisplay,
+}
+
+impl CircleWrapper {
+    const ATTRIBS: [wgpu::VertexAttribute; 2] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1=> Float32x3];
+
+    pub fn desc() -> wgpu::VertexBufferLayout<'static> {
+        use std::mem;
+
+        wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<CircleWrapper>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBS,
+        }
+    }
+}
 
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 mod shaders {
@@ -74,7 +97,7 @@ async fn run(
         features |= wgpu::Features::SPIRV_SHADER_PASSTHROUGH;
     }
     let limits = wgpu::Limits {
-        max_push_constant_size: 128,
+        max_buffer_size: 4096,
         ..Default::default()
     };
 
@@ -115,14 +138,48 @@ async fn run(
     let mut surface_with_config = initial_surface
         .map(|surface| auto_configure_surface(&adapter, &device, surface, window.inner_size()));
 
-    // Load the shaders from disk
+    // WIP START
+    let circles = shared::generate_circles();
+    let circle_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Fragment Buffer"),
+        contents: bytemuck::cast_slice(&[circles]),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::VERTEX,
+    });
 
+    let circles_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("circles"),
+        });
+
+    let circles_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        layout: &circles_bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: circle_vertex_buffer.as_entire_binding(),
+        }],
+        label: Some("circles"),
+    });
+    // WIP END
+
+    // Load the shaders from disk
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[],
+        bind_group_layouts: &[
+            /*&circles_bind_group_layout*/ &circles_bind_group_layout,
+        ],
         push_constant_ranges: &[wgpu::PushConstantRange {
             stages: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-            range: 0..std::mem::size_of::<ShaderConstants>() as u32,
+            range: 0..0 as u32,
         }],
     });
 
@@ -240,26 +297,7 @@ async fn run(
                         }
                         mouse_button_press_since_last_frame = 0;
 
-                        let push_constants = ShaderConstants {
-                            width: window.inner_size().width,
-                            height: window.inner_size().height,
-                            time,
-                            cursor_x,
-                            cursor_y,
-                            drag_start_x,
-                            drag_start_y,
-                            drag_end_x,
-                            drag_end_y,
-                            mouse_button_pressed,
-                            mouse_button_press_time,
-                        };
-
-                        rpass.set_pipeline(render_pipeline);
-                        rpass.set_push_constants(
-                            wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                            0,
-                            bytemuck::bytes_of(&push_constants),
-                        );
+                        rpass.set_pipeline(&render_pipeline);
                         rpass.draw(0..3, 0..1);
                     }
 
@@ -374,7 +412,7 @@ fn create_pipeline(
         vertex: wgpu::VertexState {
             module: vs_module,
             entry_point: vs_entry_point,
-            buffers: &[],
+            buffers: &[CircleWrapper::desc()],
         },
         primitive: wgpu::PrimitiveState {
             topology: wgpu::PrimitiveTopology::TriangleList,
