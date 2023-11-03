@@ -141,16 +141,16 @@ async fn run(
     // WIP START
     let circles = shared::generate_circles();
     let circle_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Fragment Buffer"),
+        label: Some("circles"),
         contents: bytemuck::cast_slice(&[circles]),
-        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::VERTEX,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::INDEX,
     });
 
     let circles_bind_group_layout =
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                visibility: wgpu::ShaderStages::FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -174,9 +174,7 @@ async fn run(
     // Load the shaders from disk
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[
-            /*&circles_bind_group_layout*/ &circles_bind_group_layout,
-        ],
+        bind_group_layouts: &[&circles_bind_group_layout],
         push_constant_ranges: &[wgpu::PushConstantRange {
             stages: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
             range: 0..0 as u32,
@@ -298,7 +296,14 @@ async fn run(
                         mouse_button_press_since_last_frame = 0;
 
                         rpass.set_pipeline(&render_pipeline);
-                        rpass.draw(0..3, 0..1);
+                        rpass.set_bind_group(0, &circles_bind_group, &[]);
+                        rpass.set_vertex_buffer(0, circle_vertex_buffer.slice(..));
+                        //rpass.draw(0..3, 0..1);
+                        rpass.set_index_buffer(
+                            circle_vertex_buffer.slice(..),
+                            wgpu::IndexFormat::Uint32,
+                        );
+                        rpass.draw_indexed(0..3, 0, 0..1)
                     }
 
                     queue.submit(Some(encoder.finish()));
