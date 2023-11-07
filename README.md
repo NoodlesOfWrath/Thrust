@@ -1,3 +1,5 @@
+# Current State
+I've kind of reached a brick wall on this one, I might come back when rust-gpu has developed more fully.
 # Thrust
 🚀 A fast lightweight rendering library made entirely in rust
 # Built in Rust
